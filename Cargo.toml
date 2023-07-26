@@ -2,5 +2,6 @@
 
 members = [
     "guardian",
-    "prismarine"
+    "prismarine",
+    "mcserver-mock"
 ]
