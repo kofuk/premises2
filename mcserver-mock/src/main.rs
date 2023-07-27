@@ -38,7 +38,12 @@ fn check_for_server_properties() {
 	at net.minecraft.server.Main.main(SourceFile:115) ~[server-1.20.1.jar:?]
 	at net.minecraft.bundler.Main.lambda$run$0(Main.java:54) ~[?:?]
 	at java.lang.Thread.run(Thread.java:1623) ~[?:?]"
-    )
+    );
+
+    File::create("server.properties")
+        .unwrap()
+        .write(include_bytes!("server-properties-skeleton.txt"))
+        .unwrap();
 }
 
 fn check_for_eula_txt() {
@@ -64,6 +69,11 @@ fn check_for_eula_txt() {
         "INFO",
         "You need to agree to the EULA in order to run the server. Go to eula.txt for more info.",
     );
+
+    File::create("eula.txt")
+        .unwrap()
+        .write(b"eula=false\n")
+        .unwrap();
 
     process::exit(0);
 }
