@@ -31,10 +31,10 @@ fn load_server_properties() -> HashMap<String, String> {
 
         let server_props = content
             .split('\n')
-            .filter(|line| line.bytes().into_iter().nth(0).unwrap_or(b'#') != b'#')
-            .filter_map(|line| match line.find('=') {
-                Some(pos) => Some((line[..pos].to_string(), line[pos + 1..].to_string())),
-                None => None,
+            .filter(|line| line.bytes().next().unwrap_or(b'#') != b'#')
+            .filter_map(|line| {
+                line.find('=')
+                    .map(|pos| (line[..pos].to_string(), line[pos + 1..].to_string()))
             })
             .collect();
 
@@ -47,7 +47,6 @@ fn load_server_properties() -> HashMap<String, String> {
         "Failed to load properties from file: server.properties",
     );
     println!(
-        "{}",
         "java.nio.file.NoSuchFileException: server.properties
 	at sun.nio.fs.UnixException.translateToIOException(UnixException.java:92) ~[?:?]
 	at sun.nio.fs.UnixException.rethrowAsIOException(UnixException.java:106) ~[?:?]
@@ -67,10 +66,10 @@ fn load_server_properties() -> HashMap<String, String> {
 
     File::create("server.properties")
         .unwrap()
-        .write(include_bytes!("server-properties-skeleton.txt"))
+        .write_all(include_bytes!("server-properties-skeleton.txt"))
         .unwrap();
 
-    return load_server_properties();
+    load_server_properties()
 }
 
 fn check_for_eula_txt() {
@@ -80,8 +79,7 @@ fn check_for_eula_txt() {
             file.read_to_string(&mut content).unwrap();
             content
                 .split('\n')
-                .find(|line| line.replace('\r', "") == "eula=true")
-                .is_some()
+                .any(|line| line.replace('\r', "") == "eula=true")
         }
         Err(_) => false,
     };
@@ -99,7 +97,7 @@ fn check_for_eula_txt() {
 
     File::create("eula.txt")
         .unwrap()
-        .write(b"eula=false\n")
+        .write_all(b"eula=false\n")
         .unwrap();
 
     process::exit(0);
@@ -165,8 +163,7 @@ fn get_rcon_settings(server_props: &HashMap<String, String>) -> (bool, String, u
                         .to_owned(),
                     server_props
                         .get("rcon.port")
-                        .unwrap_or(&"25575".to_string())
-                        .parse::<u16>()
+                        .map(|v| v.parse::<u16>().unwrap())
                         .unwrap_or(25575),
                 )
             } else {
@@ -205,7 +202,7 @@ mod rcon {
             R: Read,
         {
             let mut buf = [0u8; 4];
-            if let Err(_) = strm.read_exact(&mut buf) {
+            if strm.read_exact(&mut buf).is_err() {
                 return None;
             }
 
@@ -243,11 +240,11 @@ mod rcon {
         {
             let len = (4 + 4 + 2 + self.payload.as_bytes().len()) as i32;
             let mut writer = BufWriter::new(strm);
-            writer.write(&len.to_le_bytes()).unwrap();
-            writer.write(&self.req_id.to_le_bytes()).unwrap();
-            writer.write(&self.pack_type.to_le_bytes()).unwrap();
-            writer.write(self.payload.as_bytes()).unwrap();
-            writer.write(b"\0\0").unwrap();
+            writer.write_all(&len.to_le_bytes()).unwrap();
+            writer.write_all(&self.req_id.to_le_bytes()).unwrap();
+            writer.write_all(&self.pack_type.to_le_bytes()).unwrap();
+            writer.write_all(self.payload.as_bytes()).unwrap();
+            writer.write_all(b"\0\0").unwrap();
         }
     }
 
@@ -267,17 +264,17 @@ mod rcon {
                     req_id,
                     pack_type: 2,
                     payload,
-                }) => match payload.split(' ').collect::<Vec<&str>>().as_slice() {
-                    &["stop"] => {
+                }) => match *payload.split(' ').collect::<Vec<&str>>().as_slice() {
+                    ["stop"] => {
                         Packet::new(req_id, 0, "Stopping the server".to_string())
                             .send_to_stream(strm);
                         break Status::Exit;
                     }
-                    &["whitelist", "add", user] => {
+                    ["whitelist", "add", user] => {
                         Packet::new(req_id, 0, format!("Added {user} to the whitelist"))
                             .send_to_stream(strm);
                     }
-                    &["op", user] => {
+                    ["op", user] => {
                         Packet::new(req_id, 0, format!("Made {user} a server operator"))
                             .send_to_stream(strm);
                     }
@@ -321,9 +318,8 @@ mod rcon {
                 if payload == passwd {
                     Packet::new(req_id, 2, "".to_string()).send_to_stream(&mut strm);
 
-                    match do_command_loop(&mut strm) {
-                        Status::Exit => break,
-                        _ => (),
+                    if let Status::Exit = do_command_loop(&mut strm) {
+                        break;
                     };
                 } else {
                     Packet::new(-1, 2, "authentication failed".to_string())
