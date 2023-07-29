@@ -15,6 +15,28 @@ fn mc_log(topic: &str, level: &str, message: &str) {
 
 fn check_for_server_properties() {
     if Path::new("server.properties").exists() {
+        let content = {
+            let mut content = String::new();
+            File::open("server.properties")
+                .unwrap()
+                .read_to_string(&mut content)
+                .unwrap();
+            content
+        };
+
+        // If there's invalid lines, exit the server (for convenience).
+        match content
+            .split("\n")
+            .filter(|line| line.bytes().into_iter().nth(0).unwrap_or(b'#') == b'#')
+            .find(|line| !line.contains('='))
+        {
+            Some(line) => {
+                eprintln!("Debug: {}: Invalid line", line.replace("\r", ""));
+                process::exit(1);
+            }
+            None => (),
+        };
+
         return;
     }
 
