@@ -6,9 +6,9 @@ use std::path::Path;
 use std::process;
 use std::time::{Duration, SystemTime};
 
-const LOG_INFO: &'static str = "INFO";
-const LOG_WARN: &'static str = "WARN";
-const LOG_ERROR: &'static str = "ERROR";
+const LOG_INFO: &str = "INFO";
+const LOG_WARN: &str = "WARN";
+const LOG_ERROR: &str = "ERROR";
 
 fn mc_log(topic: &str, level: &str, message: &str) {
     std::thread::sleep(Duration::from_millis((rand::random::<u8>() as u64) << 2));
@@ -147,6 +147,7 @@ Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
 ThreadedAnvilChunkStorage (world): All chunks are saved
 ThreadedAnvilChunkStorage (DIM1): All chunks are saved
 ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+Thread RCON Listener stopped
 ThreadedAnvilChunkStorage: All dimensions are saved"
         .split("\n")
         .for_each(|line| mc_log("Server thread", LOG_INFO, line));
@@ -176,10 +177,159 @@ fn get_rcon_settings(server_props: &HashMap<String, String>) -> (bool, String, u
     }
 }
 
-fn listen_rcon(passwd: String, port: u16) {
-    _ = passwd;
-    _ = port;
-    loop {}
+mod rcon {
+    use super::{mc_log, LOG_INFO};
+    use std::{
+        io::{BufWriter, Read, Write},
+        net::TcpListener,
+    };
+
+    #[derive(Debug)]
+    pub struct Packet {
+        req_id: i32,
+        pack_type: i32,
+        payload: String,
+    }
+
+    impl Packet {
+        fn new(req_id: i32, pack_type: i32, payload: String) -> Self {
+            Self {
+                req_id,
+                pack_type,
+                payload,
+            }
+        }
+
+        fn read_from_stream<R>(strm: &mut R) -> Option<Packet>
+        where
+            R: Read,
+        {
+            let mut buf = [0u8; 4];
+            if let Err(_) = strm.read_exact(&mut buf) {
+                return None;
+            }
+
+            let length = i32::from_le_bytes(buf);
+            assert!(length >= 9);
+
+            strm.read_exact(&mut buf).unwrap();
+            let req_id = i32::from_le_bytes(buf);
+
+            strm.read_exact(&mut buf).unwrap();
+            let pack_type = i32::from_le_bytes(buf);
+
+            let payload_len = length - 4 - 4;
+            let mut payload_bytes = vec![0u8; payload_len as usize];
+            strm.read_exact(&mut payload_bytes).unwrap();
+
+            let payload = String::from_utf8(
+                payload_bytes
+                    .into_iter()
+                    .take_while(|b| b != &b'\0')
+                    .collect(),
+            )
+            .unwrap();
+
+            Some(Packet {
+                req_id,
+                pack_type,
+                payload,
+            })
+        }
+
+        pub fn send_to_stream<W>(&self, strm: &mut W)
+        where
+            W: Write,
+        {
+            let len = (4 + 4 + 2 + self.payload.as_bytes().len()) as i32;
+            let mut writer = BufWriter::new(strm);
+            writer.write(&len.to_le_bytes()).unwrap();
+            writer.write(&self.req_id.to_le_bytes()).unwrap();
+            writer.write(&self.pack_type.to_le_bytes()).unwrap();
+            writer.write(self.payload.as_bytes()).unwrap();
+            writer.write(b"\0\0").unwrap();
+        }
+    }
+
+    enum Status {
+        Disconnect,
+        Exit,
+    }
+
+    fn do_command_loop<S>(strm: &mut S) -> Status
+    where
+        S: Read,
+        S: Write,
+    {
+        loop {
+            match Packet::read_from_stream(strm) {
+                Some(Packet {
+                    req_id,
+                    pack_type: 2,
+                    payload,
+                }) => {
+                    if payload == "stop" {
+                        Packet::new(req_id, 0, "Stopping the server".to_string())
+                            .send_to_stream(strm);
+                        break Status::Exit;
+                    }
+                }
+                Some(Packet { req_id, .. }) => {
+                    Packet::new(req_id, 0, "unsupported packet type".to_string());
+                    break Status::Disconnect;
+                }
+                None => break Status::Disconnect,
+            };
+        }
+    }
+
+    pub fn listen(passwd: String, port: u16) {
+        let listener = TcpListener::bind(("0.0.0.0", port)).unwrap();
+
+        mc_log(
+            "Server thread",
+            LOG_INFO,
+            &format!("RCON running on 0.0.0.0:{port}"),
+        );
+
+        loop {
+            let (mut strm, addr) = listener.accept().unwrap();
+            mc_log(
+                "RCON Listener #1",
+                LOG_INFO,
+                &format!("Thread RCON Client /{} started", addr.ip()),
+            );
+
+            if let Some(Packet {
+                req_id,
+                pack_type: 3i32,
+                payload,
+            }) = Packet::read_from_stream(&mut strm)
+            {
+                if payload == passwd {
+                    Packet::new(req_id, 2, "".to_string()).send_to_stream(&mut strm);
+
+                    match do_command_loop(&mut strm) {
+                        Status::Exit => break,
+                        _ => (),
+                    };
+                } else {
+                    Packet::new(-1, 2, "authentication failed".to_string())
+                        .send_to_stream(&mut strm);
+                }
+            } else {
+                Packet::new(-1, 2, "authentication required".to_string()).send_to_stream(&mut strm);
+            }
+
+            mc_log(
+                &format!("RCON Client {} #1", addr.ip()),
+                LOG_INFO,
+                &format!("Thread RCON Client /{} shutting down", addr.ip()),
+            );
+        }
+
+        mc_log("Server thread", LOG_INFO, "[Rcon: Stopping the server]");
+    }
 }
 
 fn main() {
@@ -199,7 +349,7 @@ fn main() {
 
     prepare_server();
 
-    listen_rcon(rcon_passwd, rcon_port);
+    rcon::listen(rcon_passwd, rcon_port);
 
     stop_server();
 }
