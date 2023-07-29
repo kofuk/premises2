@@ -5,6 +5,10 @@ use std::path::Path;
 use std::process;
 use std::time::{Duration, SystemTime};
 
+const LOG_INFO: &'static str = "INFO";
+const LOG_WARN: &'static str = "WARN";
+const LOG_ERROR: &'static str = "ERROR";
+
 fn mc_log(topic: &str, level: &str, message: &str) {
     std::thread::sleep(Duration::from_millis((rand::random::<u8>() as u64) << 2));
 
@@ -27,7 +31,7 @@ fn check_for_server_properties() {
         // If there's invalid lines, exit the server (for convenience).
         match content
             .split("\n")
-            .filter(|line| line.bytes().into_iter().nth(0).unwrap_or(b'#') == b'#')
+            .filter(|line| line.bytes().into_iter().nth(0).unwrap_or(b'#') != b'#')
             .find(|line| !line.contains('='))
         {
             Some(line) => {
@@ -42,7 +46,7 @@ fn check_for_server_properties() {
 
     mc_log(
         "ServerMain",
-        "ERROR",
+        LOG_ERROR,
         "Failed to load properties from file: server.properties",
     );
     println!(
@@ -87,10 +91,10 @@ fn check_for_eula_txt() {
         return;
     }
 
-    mc_log("ServerMain", "WARN", "Failed to load eula.txt");
+    mc_log("ServerMain", LOG_WARN, "Failed to load eula.txt");
     mc_log(
         "ServerMain",
-        "INFO",
+        LOG_INFO,
         "You need to agree to the EULA in order to run the server. Go to eula.txt for more info.",
     );
 
@@ -102,9 +106,60 @@ fn check_for_eula_txt() {
     process::exit(0);
 }
 
+fn prepare_server() {
+    r#"Starting mock minecraft server version 0.10.0 (emulating 1.20.1)
+Loading properties
+Default game type: SURVIVAL
+Generating keypair
+Starting Minecraft server on *:25565
+Using epoll channel type
+Preparing level "world"
+Preparing start region for dimension minecraft:overworld"#
+        .split("\n")
+        .for_each(|line| mc_log("Server thread", LOG_INFO, line));
+
+    let mut total = 0;
+    while total <= 100 {
+        mc_log(
+            &format!("Worker-Main-{}", rand::random::<u8>() % 4 + 1),
+            LOG_INFO,
+            &format!("Preparing spawn area: {total}%"),
+        );
+
+        total += rand::random::<u8>() % 20;
+    }
+
+    mc_log("Server thread", LOG_INFO, "Time elapsed 14083 ms");
+    mc_log(
+        "Server thread",
+        LOG_INFO,
+        "Done (16.760s)! For help, type \"help\"",
+    );
+}
+
+fn stop_server() {
+    "Stopping the server
+Stopping server
+Saving players
+Saving worlds
+Saving chunks for level 'ServerLevel[world]'/minecraft:overworld
+Saving chunks for level 'ServerLevel[world]'/minecraft:the_end
+Saving chunks for level 'ServerLevel[world]'/minecraft:the_nether
+ThreadedAnvilChunkStorage (world): All chunks are saved
+ThreadedAnvilChunkStorage (DIM1): All chunks are saved
+ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
+ThreadedAnvilChunkStorage: All dimensions are saved"
+        .split("\n")
+        .for_each(|line| mc_log("Server thread", LOG_INFO, line));
+}
+
 fn main() {
     println!("Starting net.minecraft.server.Main");
 
     check_for_server_properties();
     check_for_eula_txt();
+
+    prepare_server();
+
+    stop_server();
 }
