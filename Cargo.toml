@@ -3,5 +3,6 @@
 members = [
     "guardian",
     "prismarine",
+    "premises-config",
     "mcserver-mock"
 ]
