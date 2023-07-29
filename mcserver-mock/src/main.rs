@@ -6,6 +6,8 @@ use std::process;
 use std::time::{Duration, SystemTime};
 
 fn mc_log(topic: &str, level: &str, message: &str) {
+    std::thread::sleep(Duration::from_millis((rand::random::<u8>() as u64) << 2));
+
     let time: DateTime<Local> = SystemTime::now().into();
     let time_str = time.format("%T");
     println!("[{time_str}] [{topic}/{level}]: {message}")
@@ -80,8 +82,6 @@ fn check_for_eula_txt() {
 
 fn main() {
     println!("Starting net.minecraft.server.Main");
-
-    std::thread::sleep(Duration::from_secs(1));
 
     check_for_server_properties();
     check_for_eula_txt();
