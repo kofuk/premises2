@@ -30,7 +30,7 @@ fn load_server_properties() -> HashMap<String, String> {
         };
 
         let server_props = content
-            .split("\n")
+            .split('\n')
             .filter(|line| line.bytes().into_iter().nth(0).unwrap_or(b'#') != b'#')
             .filter_map(|line| match line.find('=') {
                 Some(pos) => Some((line[..pos].to_string(), line[pos + 1..].to_string())),
@@ -79,8 +79,8 @@ fn check_for_eula_txt() {
             let mut content = String::new();
             file.read_to_string(&mut content).unwrap();
             content
-                .split("\n")
-                .find(|line| line.replace("\r", "") == "eula=true")
+                .split('\n')
+                .find(|line| line.replace('\r', "") == "eula=true")
                 .is_some()
         }
         Err(_) => false,
@@ -114,7 +114,7 @@ Starting Minecraft server on *:25565
 Using epoll channel type
 Preparing level "world"
 Preparing start region for dimension minecraft:overworld"#
-        .split("\n")
+        .split('\n')
         .for_each(|line| mc_log("Server thread", LOG_INFO, line));
 
     let mut total = 0;
@@ -149,7 +149,7 @@ ThreadedAnvilChunkStorage (DIM1): All chunks are saved
 ThreadedAnvilChunkStorage (DIM-1): All chunks are saved
 Thread RCON Listener stopped
 ThreadedAnvilChunkStorage: All dimensions are saved"
-        .split("\n")
+        .split('\n')
         .for_each(|line| mc_log("Server thread", LOG_INFO, line));
 }
 
@@ -272,6 +272,14 @@ mod rcon {
                         Packet::new(req_id, 0, "Stopping the server".to_string())
                             .send_to_stream(strm);
                         break Status::Exit;
+                    }
+                    &["whitelist", "add", user] => {
+                        Packet::new(req_id, 0, format!("Added {user} to the whitelist"))
+                            .send_to_stream(strm);
+                    }
+                    &["op", user] => {
+                        Packet::new(req_id, 0, format!("Made {user} a server operator"))
+                            .send_to_stream(strm);
                     }
                     _ => {
                         Packet::new(req_id, 0, "Command not found".to_string())
