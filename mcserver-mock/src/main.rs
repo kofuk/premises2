@@ -237,7 +237,7 @@ mod rcon {
             })
         }
 
-        pub fn send_to_stream<W>(&self, strm: &mut W)
+        fn send_to_stream<W>(&self, strm: &mut W)
         where
             W: Write,
         {
@@ -267,13 +267,17 @@ mod rcon {
                     req_id,
                     pack_type: 2,
                     payload,
-                }) => {
-                    if payload == "stop" {
+                }) => match payload.split(' ').collect::<Vec<&str>>().as_slice() {
+                    &["stop"] => {
                         Packet::new(req_id, 0, "Stopping the server".to_string())
                             .send_to_stream(strm);
                         break Status::Exit;
                     }
-                }
+                    _ => {
+                        Packet::new(req_id, 0, "Command not found".to_string())
+                            .send_to_stream(strm);
+                    }
+                },
                 Some(Packet { req_id, .. }) => {
                     Packet::new(req_id, 0, "unsupported packet type".to_string());
                     break Status::Disconnect;
