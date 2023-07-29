@@ -1,4 +1,5 @@
 use chrono::{DateTime, Local};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
@@ -17,7 +18,7 @@ fn mc_log(topic: &str, level: &str, message: &str) {
     println!("[{time_str}] [{topic}/{level}]: {message}")
 }
 
-fn check_for_server_properties() {
+fn load_server_properties() -> HashMap<String, String> {
     if Path::new("server.properties").exists() {
         let content = {
             let mut content = String::new();
@@ -28,20 +29,16 @@ fn check_for_server_properties() {
             content
         };
 
-        // If there's invalid lines, exit the server (for convenience).
-        match content
+        let server_props = content
             .split("\n")
             .filter(|line| line.bytes().into_iter().nth(0).unwrap_or(b'#') != b'#')
-            .find(|line| !line.contains('='))
-        {
-            Some(line) => {
-                eprintln!("Debug: {}: Invalid line", line.replace("\r", ""));
-                process::exit(1);
-            }
-            None => (),
-        };
+            .filter_map(|line| match line.find('=') {
+                Some(pos) => Some((line[..pos].to_string(), line[pos + 1..].to_string())),
+                None => None,
+            })
+            .collect();
 
-        return;
+        return server_props;
     }
 
     mc_log(
@@ -72,6 +69,8 @@ fn check_for_server_properties() {
         .unwrap()
         .write(include_bytes!("server-properties-skeleton.txt"))
         .unwrap();
+
+    return load_server_properties();
 }
 
 fn check_for_eula_txt() {
@@ -153,13 +152,54 @@ ThreadedAnvilChunkStorage: All dimensions are saved"
         .for_each(|line| mc_log("Server thread", LOG_INFO, line));
 }
 
+fn get_rcon_settings(server_props: &HashMap<String, String>) -> (bool, String, u16) {
+    match server_props.get("enable-rcon") {
+        Some(v) => {
+            if v == "true" {
+                (
+                    true,
+                    server_props
+                        .get("rcon.password")
+                        .unwrap_or(&"".to_string())
+                        .to_owned(),
+                    server_props
+                        .get("rcon.port")
+                        .unwrap_or(&"25575".to_string())
+                        .parse::<u16>()
+                        .unwrap_or(25575),
+                )
+            } else {
+                (false, "".to_string(), 0)
+            }
+        }
+        None => (false, "".to_string(), 0),
+    }
+}
+
+fn listen_rcon(passwd: String, port: u16) {
+    _ = passwd;
+    _ = port;
+    loop {}
+}
+
 fn main() {
     println!("Starting net.minecraft.server.Main");
 
-    check_for_server_properties();
+    let server_props = load_server_properties();
     check_for_eula_txt();
 
+    let (enable_rcon, rcon_passwd, rcon_port) = get_rcon_settings(&server_props);
+    if !enable_rcon {
+        eprintln!("Debug: You must enable rcon to use this mock server");
+        process::exit(1);
+    } else if enable_rcon && rcon_passwd.is_empty() {
+        eprintln!("Debug: rcon cannot be enabled with empty password");
+        process::exit(1);
+    }
+
     prepare_server();
+
+    listen_rcon(rcon_passwd, rcon_port);
 
     stop_server();
 }
