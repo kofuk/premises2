@@ -255,8 +255,7 @@ mod rcon {
 
     fn do_command_loop<S>(strm: &mut S) -> Status
     where
-        S: Read,
-        S: Write,
+        S: Read + Write,
     {
         loop {
             match Packet::read_from_stream(strm) {
@@ -279,13 +278,21 @@ mod rcon {
                             .send_to_stream(strm);
                     }
                     _ => {
-                        Packet::new(req_id, 0, "Command not found".to_string())
-                            .send_to_stream(strm);
+                        Packet::new(
+                            req_id,
+                            0,
+                            format!(
+                                "Unknown or incomplete command, see below for error{}<--[HERE]",
+                                payload
+                            ),
+                        )
+                        .send_to_stream(strm);
                     }
                 },
-                Some(Packet { req_id, .. }) => {
-                    Packet::new(req_id, 0, "unsupported packet type".to_string());
-                    break Status::Disconnect;
+                Some(Packet {
+                    req_id, pack_type, ..
+                }) => {
+                    Packet::new(req_id, 0, format!("Unknown request {:x}", pack_type));
                 }
                 None => break Status::Disconnect,
             };
@@ -311,7 +318,7 @@ mod rcon {
 
             if let Some(Packet {
                 req_id,
-                pack_type: 3i32,
+                pack_type: 3,
                 payload,
             }) = Packet::read_from_stream(&mut strm)
             {
