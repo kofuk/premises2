@@ -1,3 +1,5 @@
+mod rcon;
+
 use log::info;
 use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
